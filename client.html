@@ -1,76 +1,87 @@
 <!doctype html>
 <html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Remote Access MVP Client</title>
-<style>
-  body { margin:0; padding:0; overflow:hidden; background:#000; }
-  #video { width:100vw; height:100vh; display:block; object-fit:contain; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Remote Access MVP Client</title>
+  <style>
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #video { width:100vw; height:100vh; display:block; cursor: crosshair; }
+  </style>
 </head>
 <body>
-<img id="video" alt="Remote Screen">
+  <img id="video" alt="Remote Screen">
 
-<script>
-const server="192.168.1.219:9000";  // Windows host IP
-const token="mysecret123";
-const img=document.getElementById('video');
-img.src=`http://${server}/video?token=${encodeURIComponent(token)}`;
+  <script>
+    let dragging = false, lastX = 0, lastY = 0;
 
-const ws=new WebSocket(`ws://${server}/ws?token=${encodeURIComponent(token)}`);
+    function xyInImage(ev,img){
+      const rect = img.getBoundingClientRect();
+      return {
+        x: Math.round((ev.clientX - rect.left) * (img.naturalWidth / rect.width)),
+        y: Math.round((ev.clientY - rect.top) * (img.naturalHeight / rect.height))
+      };
+    }
 
-let dragging=false;
-let lastX=0,lastY=0;
+    function bindControls(img, token){
+      function sendEvent(e){
+        fetch(`/input?token=${encodeURIComponent(token)}`, {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(e)
+        }).catch(console.error);
+      }
 
-function xyInImage(ev){
-  const rect=img.getBoundingClientRect();
-  const x=Math.round((ev.clientX-rect.left)*(img.naturalWidth/rect.width));
-  const y=Math.round((ev.clientY-rect.top)*(img.naturalHeight/rect.height));
-  return {x,y};
-}
+      img.addEventListener("mousedown", ev=>{
+        dragging=true;
+        const {x,y}=xyInImage(ev,img);
+        lastX=x; lastY=y;
+        sendEvent({type:"mouse_move",x,y});
+        sendEvent({type:"mouse_down",button: ev.button===2?"right":"left"});
+      });
+      img.addEventListener("mouseup", ev=>{
+        dragging=false;
+        sendEvent({type:"mouse_up", button: ev.button===2?"right":"left"});
+      });
+      img.addEventListener("mousemove", ev=>{
+        if(!dragging) return;
+        const {x,y}=xyInImage(ev,img);
+        if(x!==lastX||y!==lastY){
+          sendEvent({type:"mouse_move",x,y});
+          lastX=x; lastY=y;
+        }
+      });
+      img.addEventListener("click", ev=>{
+        const {x,y}=xyInImage(ev,img);
+        sendEvent({type:"mouse_move",x,y});
+        sendEvent({type:"mouse_click", button: ev.button===2?"right":"left"});
+      });
+      img.addEventListener("contextmenu", ev=>ev.preventDefault());
+      img.addEventListener("wheel", ev=>{
+        sendEvent({type:"scroll", dx: Math.sign(ev.deltaX)*120, dy: Math.sign(ev.deltaY)*120});
+        ev.preventDefault();
+      }, {passive:false});
 
-img.addEventListener('mousedown',ev=>{
-  dragging=true;
-  const {x,y}=xyInImage(ev);
-  lastX=x; lastY=y;
-  ws.send(JSON.stringify({type:'mouse_move',x,y}));
-  ws.send(JSON.stringify({type:'mouse_down',button:ev.button===2?'right':'left'}));
-});
-img.addEventListener('mouseup',ev=>{
-  dragging=false;
-  ws.send(JSON.stringify({type:'mouse_up',button:ev.button===2?'right':'left'}));
-});
-img.addEventListener('mousemove',ev=>{
-  if(!dragging) return;
-  const {x,y}=xyInImage(ev);
-  if(x!==lastX||y!==lastY){
-    ws.send(JSON.stringify({type:'mouse_move',x,y}));
-    lastX=x; lastY=y;
-  }
-});
-img.addEventListener('click',ev=>{
-  const {x,y}=xyInImage(ev);
-  ws.send(JSON.stringify({type:'mouse_move',x,y}));
-  ws.send(JSON.stringify({type:'mouse_click',button:ev.button===2?'right':'left'}));
-});
-img.addEventListener('contextmenu',ev=>ev.preventDefault());
-img.addEventListener('wheel',ev=>{
-  ev.preventDefault();
-  const dx=Math.sign(ev.deltaX)*120;
-  const dy=Math.sign(ev.deltaY)*120;
-  ws.send(JSON.stringify({type:'scroll',dx,dy}));
-},{passive:false});
+      window.addEventListener("keydown", ev=>{
+        if(ev.repeat) return;
+        const key = ev.key.length===1?ev.key:ev.code;
+        sendEvent({type:"key_down", key});
+        ev.preventDefault();
+      });
+      window.addEventListener("keyup", ev=>{
+        const key = ev.key.length===1?ev.key:ev.code;
+        sendEvent({type:"key_up", key});
+        ev.preventDefault();
+      });
+    }
 
-window.addEventListener('keydown',ev=>{
-  if(ev.repeat) return;
-  const key=ev.key.length===1?ev.key.toLowerCase():ev.key;
-  ws.send(JSON.stringify({type:'key_down',key}));
-});
-window.addEventListener('keyup',ev=>{
-  const key=ev.key.length===1?ev.key.toLowerCase():ev.key;
-  ws.send(JSON.stringify({type:'key_up',key}));
-});
-</script>
+    // Auto-connect to /video on page load
+    window.addEventListener("load", ()=>{
+      const token = prompt("Enter your token", "mysecret123");
+      const img = document.getElementById("video");
+      img.src = `/video?token=${encodeURIComponent(token)}`;
+      bindControls(img, token);
+    });
+  </script>
 </body>
 </html>

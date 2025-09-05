@@ -2,29 +2,25 @@ import asyncio
 import io
 import os
 import time
-from typing import AsyncGenerator
-
 from fastapi import FastAPI, Request, HTTPException, Body
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-
 import pyautogui
 from PIL import Image
 
 pyautogui.FAILSAFE = False
 
 # ---------- CONFIG ----------
-HOST = os.environ.get("RA_HOST", "0.0.0.0")
-PORT = int(os.environ.get("RA_PORT", "9000"))
 AUTH_TOKEN = os.environ.get("RA_TOKEN", "mysecret123")
-FPS = int(os.environ.get("RA_FPS", "10"))
-SCALE = float(os.environ.get("RA_SCALE", "1.0"))  # scale 1.0 to match full screen
-QUALITY = int(os.environ.get("RA_QUALITY", "70"))
+FPS = int(os.environ.get("RA_FPS", 10))
+SCALE = float(os.environ.get("RA_SCALE", 1.0))  # scale 1.0 = full screen
+QUALITY = int(os.environ.get("RA_QUALITY", 70))
+PORT = int(os.environ.get("PORT", 9000))
 # ----------------------------
 
 app = FastAPI()
 
-# Allow requests from any origin (for web)
+# Allow requests from any origin (web client)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,10 +29,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve the HTML client
+@app.get("/", response_class=HTMLResponse)
+async def get_client():
+    with open("client.html", "r", encoding="utf-8") as f:
+        return f.read()
+
 def _check_token(token: str | None):
     if (token or "") != AUTH_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+# Video streaming endpoint
 @app.get("/video")
 async def video(request: Request, token: str | None = None):
     _check_token(token)
@@ -44,19 +47,17 @@ async def video(request: Request, token: str | None = None):
     frametime = 1.0 / max(FPS, 1)
     last_time = 0.0
 
-    async def frame_generator() -> AsyncGenerator[bytes, None]:
+    async def frame_generator():
         nonlocal last_time
         while True:
             if await request.is_disconnected():
                 break
-
             now = time.time()
             if now - last_time < frametime:
                 await asyncio.sleep(0.001)
                 continue
             last_time = now
 
-            # Capture full screen
             pil = pyautogui.screenshot()
             if SCALE != 1.0:
                 w = int(pil.width * SCALE)
@@ -79,6 +80,7 @@ async def video(request: Request, token: str | None = None):
         media_type=f"multipart/x-mixed-replace; boundary={boundary}"
     )
 
+# Input events endpoint
 @app.post("/input")
 async def input_event(event: dict = Body(...), token: str | None = None):
     _check_token(token)
@@ -112,4 +114,4 @@ async def input_event(event: dict = Body(...), token: str | None = None):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host=HOST, port=PORT, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
