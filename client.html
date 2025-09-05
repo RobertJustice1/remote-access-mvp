@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote Access MVP Client</title>
+<style>
+  body { margin:0; padding:0; overflow:hidden; background:#000; }
+  #video { width:100vw; height:100vh; display:block; object-fit:contain; }
+</style>
+</head>
+<body>
+<img id="video" alt="Remote Screen">
+
+<script>
+const server="192.168.1.219:9000";  // Windows host IP
+const token="mysecret123";
+const img=document.getElementById('video');
+img.src=`http://${server}/video?token=${encodeURIComponent(token)}`;
+
+const ws=new WebSocket(`ws://${server}/ws?token=${encodeURIComponent(token)}`);
+
+let dragging=false;
+let lastX=0,lastY=0;
+
+function xyInImage(ev){
+  const rect=img.getBoundingClientRect();
+  const x=Math.round((ev.clientX-rect.left)*(img.naturalWidth/rect.width));
+  const y=Math.round((ev.clientY-rect.top)*(img.naturalHeight/rect.height));
+  return {x,y};
+}
+
+img.addEventListener('mousedown',ev=>{
+  dragging=true;
+  const {x,y}=xyInImage(ev);
+  lastX=x; lastY=y;
+  ws.send(JSON.stringify({type:'mouse_move',x,y}));
+  ws.send(JSON.stringify({type:'mouse_down',button:ev.button===2?'right':'left'}));
+});
+img.addEventListener('mouseup',ev=>{
+  dragging=false;
+  ws.send(JSON.stringify({type:'mouse_up',button:ev.button===2?'right':'left'}));
+});
+img.addEventListener('mousemove',ev=>{
+  if(!dragging) return;
+  const {x,y}=xyInImage(ev);
+  if(x!==lastX||y!==lastY){
+    ws.send(JSON.stringify({type:'mouse_move',x,y}));
+    lastX=x; lastY=y;
+  }
+});
+img.addEventListener('click',ev=>{
+  const {x,y}=xyInImage(ev);
+  ws.send(JSON.stringify({type:'mouse_move',x,y}));
+  ws.send(JSON.stringify({type:'mouse_click',button:ev.button===2?'right':'left'}));
+});
+img.addEventListener('contextmenu',ev=>ev.preventDefault());
+img.addEventListener('wheel',ev=>{
+  ev.preventDefault();
+  const dx=Math.sign(ev.deltaX)*120;
+  const dy=Math.sign(ev.deltaY)*120;
+  ws.send(JSON.stringify({type:'scroll',dx,dy}));
+},{passive:false});
+
+window.addEventListener('keydown',ev=>{
+  if(ev.repeat) return;
+  const key=ev.key.length===1?ev.key.toLowerCase():ev.key;
+  ws.send(JSON.stringify({type:'key_down',key}));
+});
+window.addEventListener('keyup',ev=>{
+  const key=ev.key.length===1?ev.key.toLowerCase():ev.key;
+  ws.send(JSON.stringify({type:'key_up',key}));
+});
+</script>
+</body>
+</html>
