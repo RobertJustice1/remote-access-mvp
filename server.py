@@ -1,23 +1,25 @@
-import os
-import io
-import time
 import asyncio
+import io
+import os
+import time
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from mss import mss
+import pyautogui
 from PIL import Image
 
+pyautogui.FAILSAFE = False
+
 # ---------- CONFIG ----------
-HOST = "0.0.0.0"
-PORT = int(os.environ.get("PORT", 9000))  # Render provides $PORT
+HOST = os.environ.get("RA_HOST", "0.0.0.0")
+PORT = int(os.environ.get("PORT", 9000))  # Use Render's PORT environment variable
 AUTH_TOKEN = os.environ.get("RA_TOKEN", "mysecret123")
-FPS = int(os.environ.get("RA_FPS", 5))
-SCALE = float(os.environ.get("RA_SCALE", 1.0))
-QUALITY = int(os.environ.get("RA_QUALITY", 70))
+FPS = int(os.environ.get("RA_FPS", "10"))
+SCALE = float(os.environ.get("RA_SCALE", "1.0"))  # scale 1.0 to match full screen
+QUALITY = int(os.environ.get("RA_QUALITY", "70"))
 # ----------------------------
 
 app = FastAPI()
@@ -44,35 +46,33 @@ async def video(request: Request, token: str | None = None):
 
     async def frame_generator() -> AsyncGenerator[bytes, None]:
         nonlocal last_time
-        with mss() as sct:
-            monitor = sct.monitors[0]  # full virtual screen
-            while True:
-                if await request.is_disconnected():
-                    break
+        while True:
+            if await request.is_disconnected():
+                break
 
-                now = time.time()
-                if now - last_time < frametime:
-                    await asyncio.sleep(0.001)
-                    continue
-                last_time = now
+            now = time.time()
+            if now - last_time < frametime:
+                await asyncio.sleep(0.001)
+                continue
+            last_time = now
 
-                sct_img = sct.grab(monitor)
-                pil_img = Image.frombytes("RGB", sct_img.size, sct_img.rgb)
-                if SCALE != 1.0:
-                    w = int(pil_img.width * SCALE)
-                    h = int(pil_img.height * SCALE)
-                    pil_img = pil_img.resize((max(1, w), max(1, h)), Image.BILINEAR)
+            # Capture full screen
+            pil = pyautogui.screenshot()
+            if SCALE != 1.0:
+                w = int(pil.width * SCALE)
+                h = int(pil.height * SCALE)
+                pil = pil.resize((max(1, w), max(1, h)), Image.BILINEAR)
 
-                buff = io.BytesIO()
-                pil_img.save(buff, format="JPEG", quality=QUALITY, optimize=True)
-                data = buff.getvalue()
+            buff = io.BytesIO()
+            pil.save(buff, format="JPEG", quality=QUALITY, optimize=True)
+            data = buff.getvalue()
 
-                yield (
-                    b"--" + boundary.encode() + b"\r\n"
-                    + b"Content-Type: image/jpeg\r\n"
-                    + f"Content-Length: {len(data)}\r\n\r\n".encode()
-                    + data + b"\r\n"
-                )
+            yield (
+                b"--" + boundary.encode() + b"\r\n"
+                + b"Content-Type: image/jpeg\r\n"
+                + f"Content-Length: {len(data)}\r\n\r\n".encode()
+                + data + b"\r\n"
+            )
 
     return StreamingResponse(
         frame_generator(),
@@ -82,10 +82,34 @@ async def video(request: Request, token: str | None = None):
 @app.post("/input")
 async def input_event(event: dict = Body(...), token: str | None = None):
     _check_token(token)
-    # NOTE: pyautogui won't work on Render for mouse/keyboard events.
-    # You could handle events differently or leave it non-functional on headless.
-    return {"status": "ok", "note": "input events ignored on Render"}
+    try:
+        mtype = event.get("type")
+        if mtype == "mouse_move":
+            pyautogui.moveTo(event["x"], event["y"])
+        elif mtype == "mouse_click":
+            pyautogui.click(button=event.get("button", "left"), clicks=int(event.get("clicks", 1)))
+        elif mtype == "mouse_down":
+            pyautogui.mouseDown(button=event.get("button", "left"))
+        elif mtype == "mouse_up":
+            pyautogui.mouseUp(button=event.get("button", "left"))
+        elif mtype == "scroll":
+            pyautogui.scroll(int(event.get("dy", 0)))
+            pyautogui.hscroll(int(event.get("dx", 0)))
+        elif mtype == "key_down":
+            pyautogui.keyDown(event["key"])
+        elif mtype == "key_up":
+            pyautogui.keyUp(event["key"])
+        elif mtype == "type_text":
+            pyautogui.typewrite(event.get("text", ""), interval=0.01)
+        elif mtype == "hotkey":
+            keys = event.get("keys", [])
+            if isinstance(keys, list) and keys:
+                pyautogui.hotkey(*keys)
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+    return {"status": "ok"}
+
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host=HOST, port=PORT)
+    uvicorn.run("server:app", host=HOST, port=PORT, reload=False)

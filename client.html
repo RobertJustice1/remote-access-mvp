@@ -5,18 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Remote Access MVP Client</title>
   <style>
-    body { margin: 0; overflow: hidden; background: #000; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; overflow: hidden; }
     #video { width: 100vw; height: 100vh; display: block; cursor: crosshair; }
+    #connect-bar { position: fixed; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.7); padding: 8px; z-index: 1000; display: flex; gap: 8px; align-items: center; }
+    #connect-bar input, #connect-bar button { padding: 6px; border-radius: 4px; border: none; }
   </style>
 </head>
 <body>
-  <img id="video" alt="Remote Screen" src="https://controlcomputer.onrender.com/video?token=mysecret123">
+  <div id="connect-bar">
+    <label>Server URL: <input id="server" value="https://controlcomputer.onrender.com" style="width:300px"></label>
+    <label>Token: <input id="token" value="mysecret123"></label>
+    <button id="connect">Connect</button>
+  </div>
+
+  <img id="video" alt="Remote Screen">
 
   <script>
-    const img = document.getElementById('video');
-    const server = "https://controlcomputer.onrender.com";
-    const token = "mysecret123";
-
     let dragging = false;
     let lastX = 0, lastY = 0;
 
@@ -24,65 +28,72 @@
       const rect = img.getBoundingClientRect();
       const x = Math.round((ev.clientX - rect.left) * (img.naturalWidth / rect.width));
       const y = Math.round((ev.clientY - rect.top) * (img.naturalHeight / rect.height));
-      return {x, y};
+      return {x,y};
     }
 
-    function sendEvent(event) {
-      fetch(`${server}/input?token=${encodeURIComponent(token)}`, {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify(event)
-      }).catch(console.error);
-    }
-
-    img.addEventListener('mousedown', (ev) => {
-      dragging = true;
-      const {x,y} = xyInImage(ev,img);
-      lastX = x; lastY = y;
-      sendEvent({type:'mouse_move', x, y});
-      sendEvent({type:'mouse_down', button: ev.button===2?'right':'left'});
-    });
-
-    img.addEventListener('mouseup', (ev) => {
-      dragging = false;
-      sendEvent({type:'mouse_up', button: ev.button===2?'right':'left'});
-    });
-
-    img.addEventListener('mousemove', (ev) => {
-      if (!dragging) return;
-      const {x,y} = xyInImage(ev,img);
-      if(x!==lastX || y!==lastY){
-        sendEvent({type:'mouse_move', x, y});
-        lastX = x; lastY = y;
+    function bindControls(img, server, token) {
+      function sendEvent(event) {
+        fetch(`${server}/input?token=${encodeURIComponent(token)}`, {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(event)
+        }).catch(console.error);
       }
-    });
 
-    img.addEventListener('click', (ev) => {
-      const {x,y} = xyInImage(ev,img);
-      sendEvent({type:'mouse_move', x, y});
-      sendEvent({type:'mouse_click', button: ev.button===2?'right':'left'});
-    });
+      img.addEventListener('mousedown', (ev)=>{
+        dragging = true;
+        const {x,y} = xyInImage(ev, img);
+        lastX = x; lastY = y;
+        sendEvent({type:'mouse_move', x, y});
+        sendEvent({type:'mouse_down', button: ev.button===2?'right':'left'});
+      });
+      img.addEventListener('mouseup', (ev)=>{
+        dragging = false;
+        sendEvent({type:'mouse_up', button: ev.button===2?'right':'left'});
+      });
+      img.addEventListener('mousemove', (ev)=>{
+        if (!dragging) return;
+        const {x,y} = xyInImage(ev, img);
+        if (x!==lastX || y!==lastY){
+          sendEvent({type:'mouse_move', x, y});
+          lastX = x; lastY = y;
+        }
+      });
+      img.addEventListener('click', (ev)=>{
+        const {x,y} = xyInImage(ev,img);
+        sendEvent({type:'mouse_move', x, y});
+        sendEvent({type:'mouse_click', button: ev.button===2?'right':'left'});
+      });
+      img.addEventListener('contextmenu',(ev)=>ev.preventDefault());
+      img.addEventListener('wheel',(ev)=>{
+        const dx = Math.sign(ev.deltaX)*120;
+        const dy = Math.sign(ev.deltaY)*120;
+        sendEvent({type:'scroll', dx, dy});
+        ev.preventDefault();
+      },{passive:false});
 
-    img.addEventListener('contextmenu', ev => ev.preventDefault());
+      // keyboard
+      window.addEventListener('keydown', (ev)=>{
+        if (ev.repeat) return;
+        const key = ev.key.length === 1 ? ev.key : ev.code;
+        sendEvent({type:'key_down', key});
+        ev.preventDefault();
+      });
+      window.addEventListener('keyup', (ev)=>{
+        const key = ev.key.length === 1 ? ev.key : ev.code;
+        sendEvent({type:'key_up', key});
+        ev.preventDefault();
+      });
+    }
 
-    img.addEventListener('wheel', (ev) => {
-      const dx = Math.sign(ev.deltaX)*120;
-      const dy = Math.sign(ev.deltaY)*120;
-      sendEvent({type:'scroll', dx, dy});
-      ev.preventDefault();
-    }, {passive:false});
+    document.getElementById('connect').addEventListener('click', ()=>{
+      const server = document.getElementById('server').value.trim();
+      const token = document.getElementById('token').value.trim();
+      if (!server || !token) { alert("Enter server URL and token"); return; }
 
-    window.addEventListener('keydown', (ev) => {
-      if(ev.repeat) return;
-      const key = ev.key.length===1?ev.key:ev.code;
-      sendEvent({type:'key_down', key});
-      ev.preventDefault();
-    });
-
-    window.addEventListener('keyup', (ev) => {
-      const key = ev.key.length===1?ev.key:ev.code;
-      sendEvent({type:'key_up', key});
-      ev.preventDefault();
+      const img = document.getElementById('video');
+      img.src = `${server}/video?token=${encodeURIComponent(token)}`;
+      bindControls(img, server, token);
     });
   </script>
 </body>
