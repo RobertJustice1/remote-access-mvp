@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Remote Access MVP Client</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; overflow: hidden; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 0; }
     #video { width: 100vw; height: 100vh; display: block; cursor: crosshair; }
-    #connect-bar { position: fixed; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.7); padding: 8px; z-index: 1000; display: flex; gap: 8px; align-items: center; }
-    #connect-bar input, #connect-bar button { padding: 6px; border-radius: 4px; border: none; }
+    .controls { position: absolute; top: 8px; left: 8px; background: rgba(255,255,255,0.9); padding: 8px; border-radius: 8px; z-index: 10; }
+    input, button { margin: 4px 0; padding: 4px 8px; border-radius: 4px; }
   </style>
 </head>
 <body>
-  <div id="connect-bar">
-    <label>Server URL: <input id="server" value="https://controlcomputer.onrender.com" style="width:300px"></label>
-    <label>Token: <input id="token" value="mysecret123"></label>
+  <div class="controls">
+    <label>Server URL: <input id="server" placeholder="https://your-cloudflare-url" style="width:250px"></label><br>
+    <label>Token: <input id="token" placeholder="mysecret123"></label><br>
     <button id="connect">Connect</button>
   </div>
 
@@ -28,7 +28,7 @@
       const rect = img.getBoundingClientRect();
       const x = Math.round((ev.clientX - rect.left) * (img.naturalWidth / rect.width));
       const y = Math.round((ev.clientY - rect.top) * (img.naturalHeight / rect.height));
-      return {x,y};
+      return {x, y};
     }
 
     function bindControls(img, server, token) {
@@ -40,9 +40,10 @@
         }).catch(console.error);
       }
 
+      // Mouse
       img.addEventListener('mousedown', (ev)=>{
         dragging = true;
-        const {x,y} = xyInImage(ev, img);
+        const {x,y} = xyInImage(ev,img);
         lastX = x; lastY = y;
         sendEvent({type:'mouse_move', x, y});
         sendEvent({type:'mouse_down', button: ev.button===2?'right':'left'});
@@ -53,7 +54,7 @@
       });
       img.addEventListener('mousemove', (ev)=>{
         if (!dragging) return;
-        const {x,y} = xyInImage(ev, img);
+        const {x,y} = xyInImage(ev,img);
         if (x!==lastX || y!==lastY){
           sendEvent({type:'mouse_move', x, y});
           lastX = x; lastY = y;
@@ -70,17 +71,17 @@
         const dy = Math.sign(ev.deltaY)*120;
         sendEvent({type:'scroll', dx, dy});
         ev.preventDefault();
-      },{passive:false});
+      }, {passive:false});
 
-      // keyboard
+      // Keyboard
       window.addEventListener('keydown', (ev)=>{
         if (ev.repeat) return;
-        const key = ev.key.length === 1 ? ev.key : ev.code;
+        const key = ev.key.length===1 ? ev.key : ev.code;
         sendEvent({type:'key_down', key});
         ev.preventDefault();
       });
       window.addEventListener('keyup', (ev)=>{
-        const key = ev.key.length === 1 ? ev.key : ev.code;
+        const key = ev.key.length===1 ? ev.key : ev.code;
         sendEvent({type:'key_up', key});
         ev.preventDefault();
       });
@@ -89,7 +90,7 @@
     document.getElementById('connect').addEventListener('click', ()=>{
       const server = document.getElementById('server').value.trim();
       const token = document.getElementById('token').value.trim();
-      if (!server || !token) { alert("Enter server URL and token"); return; }
+      if (!server || !token){ alert("Enter server URL and token"); return; }
 
       const img = document.getElementById('video');
       img.src = `${server}/video?token=${encodeURIComponent(token)}`;
